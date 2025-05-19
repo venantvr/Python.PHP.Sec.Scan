@@ -14,6 +14,7 @@ VULN_TYPES = [
     "session_fixation",
 ]
 
+
 def parse_args():
     """Parse les arguments de la ligne de commande."""
     parser = argparse.ArgumentParser(description="phpsecscan : analyse statique hybride de sécurité pour projets PHP")
@@ -26,10 +27,12 @@ def parse_args():
         parser.error(f"Le chemin {args.path} n'est pas un répertoire valide")
     return args
 
+
 def run():
     """Exécute l'analyse avec les arguments fournis."""
     args = parse_args()
     main(args.path, vuln_types=args.vuln_types, output_file=args.output)
+
 
 if __name__ == "__main__":
     run()

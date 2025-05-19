@@ -9,6 +9,7 @@ parser = Parser(PHP_LANGUAGE)
 DANGEROUS_FUNCTIONS = {'eval', 'exec', 'system', 'shell_exec', 'passthru'}
 
 
+# noinspection PyShadowingNames
 def parse_and_analyze(code):
     """
     Parse le code PHP et recherche les appels à des fonctions dangereuses.
@@ -62,6 +63,7 @@ else:
 
 
 # Exemple : Parser un fichier PHP
+# noinspection PyShadowingNames
 def analyze_file(file_path):
     try:
         with open(file_path, 'r', encoding='utf8') as f:

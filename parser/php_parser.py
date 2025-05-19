@@ -9,6 +9,7 @@ parser = Parser(PHP_LANGUAGE)
 # Liste des fonctions dangereuses à détecter
 DANGEROUS_FUNCTIONS = {'eval', 'exec', 'system', 'shell_exec', 'passthru'}
 
+
 def parse_php_file(file_path):
     """
     Parse un fichier PHP et retourne son arbre syntaxique.
@@ -24,6 +25,7 @@ def parse_php_file(file_path):
     except Exception as e:
         print(f"Erreur lors de l'analyse de {file_path}: {e}")
         return None, None
+
 
 def analyze_php_code(code):
     """
@@ -47,6 +49,7 @@ def analyze_php_code(code):
 
     traverse(root_node)
     return issues
+
 
 def analyze_php_file(file_path):
     """

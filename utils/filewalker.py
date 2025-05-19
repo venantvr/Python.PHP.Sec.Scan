@@ -2,6 +2,7 @@
 import os
 from typing import List, Optional
 
+
 def find_php_files(root_dir: str, ignored_paths: Optional[List[str]] = None) -> List[str]:
     """Parcourt récursivement un dossier pour trouver les fichiers PHP, en ignorant certains chemins."""
     ignored_paths = ignored_paths or ['vendor', '.git', 'tests']

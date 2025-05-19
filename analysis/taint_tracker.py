@@ -134,6 +134,7 @@ class TaintTracker:
         for child in node.children:
             self.track_taint(child, file_path, in_auth_context)
 
+    # noinspection PyUnresolvedReferences
     def analyze(self, tree: Node, file_path: str) -> List[Dict[str, Any]]:
         """Analyse l'AST pour détecter les vulnérabilités."""
         self.tainted_vars.clear()

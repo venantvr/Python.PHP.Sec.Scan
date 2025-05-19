@@ -8,6 +8,7 @@ from analysis.taint_tracker import TaintTracker
 PHP_LANGUAGE = Language(tsphp.language_php())
 PARSER = Parser(PHP_LANGUAGE)
 
+
 def test_taint_tracker_sql_injection():
     """Teste la détection d'une injection SQL."""
     code = """
@@ -18,11 +19,13 @@ def test_taint_tracker_sql_injection():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['sql_injection'])
+    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 1
     assert vulns[0]["type"] == "sql_injection"
     assert vulns[0]["sink"] == "mysqli_query"
     assert vulns[0]["variable"] == "$id"
+
 
 def test_taint_tracker_xss_sanitized():
     """Teste la nonDétection de XSS avec désinfection."""
@@ -35,8 +38,10 @@ def test_taint_tracker_xss_sanitized():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['xss'])
+    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 0
+
 
 def test_taint_tracker_auth_bypass():
     """Teste la détection d'une comparaison faible."""
@@ -49,6 +54,7 @@ def test_taint_tracker_auth_bypass():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['auth_bypass'])
+    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 1
     assert vulns[0]["type"] == "auth_bypass"

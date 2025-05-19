@@ -1,6 +1,7 @@
 # scanner.py
 import datetime
 import json
+import os
 from typing import List, Optional
 
 from analysis.taint_tracker import TaintTracker
@@ -42,8 +43,10 @@ def main(project_path: str, vuln_types: Optional[List[str]] = None, output_file:
 
     print(f"Analyse terminée. Rapport écrit dans {output_file}")
 
+
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) < 2:
         print("Usage: python scanner.py <chemin_projet_php>")
         sys.exit(1)
