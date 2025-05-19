@@ -1,15 +1,20 @@
 # config/rules.yaml
-
 sources:
   - $_GET
   - $_POST
   - $_COOKIE
   - $_REQUEST
-
+  - $_FILES
 filters:
-  - htmlspecialchars
-  - mysqli_real_escape_string
-
+  sql_injection:
+    - mysqli_real_escape_string
+    - filter_var
+  xss:
+    - htmlspecialchars
+    - htmlentities
+  rce:
+    - escapeshellcmd
+    - escapeshellarg
 sinks:
   sql_injection:
     - mysqli_query
@@ -17,6 +22,7 @@ sinks:
   xss:
     - echo
     - print
+    - printf
   rce:
     - system
     - exec
@@ -27,7 +33,13 @@ sinks:
     - require
     - include_once
     - require_once
-  insecure_upload:
-    - move_uploaded_file
-  auth_bypass:
-    - header
+auth_checks:
+  - password_verify
+  - hash_equals
+auth_functions:
+  - login
+  - authenticate
+session_functions:
+  - session_regenerate_id
+upload_functions:
+  - move_uploaded_file

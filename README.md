@@ -22,5 +22,5 @@ Merci de générer un squelette Python fonctionnel, organisé selon ce pipeline 
 détection → rapport, prêt à être étendu.
 
 ```
-python3 -m cli /var/www/www.concilio.com/ --vuln-types sql_injection xss rce
+python3 -m cli /var/www/ --vuln-types sql_injection xss rce
 ```
