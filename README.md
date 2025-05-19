@@ -20,3 +20,7 @@ Fonctionnalités principales :
 
 Merci de générer un squelette Python fonctionnel, organisé selon ce pipeline : exploration → parsing → analyse de flux →
 détection → rapport, prêt à être étendu.
+
+```
+python3 -m cli /var/www/www.concilio.com/ --vuln-types sql_injection xss rce
+```

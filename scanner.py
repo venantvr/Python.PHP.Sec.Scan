@@ -1,35 +1,43 @@
-# scanner.py
+# scanner.py - Point d'entrée principal
 
 import json
-import os
 
-from analysis.taint_tracker import TaintTracker
 from parser.php_parser import parse_php_file
 from utils.filewalker import find_php_files
 
 
-def main(project_path, vuln_types=None, output_path="report/report.json"):
+def main(project_path, vuln_types=None):
     vuln_types = vuln_types or []
 
     php_files = find_php_files(project_path)
     all_results = []
 
     for file_path in php_files:
-        with open(file_path, "rb") as f:
-            source_code = f.read()
-
         tree = parse_php_file(file_path)
-        tracker = TaintTracker(source_code)
-        vulnerabilities = tracker.analyze_tree(tree, file_path)
 
+        # Placeholder pour la suite : analyse de flux et détection
         result = {
             "file": file_path,
-            "vulnerabilities": vulnerabilities
+            "vulnerabilities": [
+                # À remplir plus tard
+            ]
         }
+
         all_results.append(result)
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(all_results, f, indent=2)
+    # Génération du rapport
+    with open("report.json", "w", encoding="utf8") as f:
+        json.dump(all_results, f, indent=2, ensure_ascii=False)
 
-    print(f"Analyse terminée. Rapport généré dans {output_path}")
+    print("Analyse terminée. Rapport écrit dans report.json")
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python scanner.py <chemin_projet_php>")
+        sys.exit(1)
+
+    project_dir = sys.argv[1]
+    main(project_dir)
