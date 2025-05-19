@@ -4,10 +4,9 @@ from tree_sitter import Parser, Language
 
 from analysis.taint_tracker import TaintTracker
 
+# Initialiser le parseur pour PHP
 PHP_LANGUAGE = Language(tsphp.language_php())
-PARSER = Parser()
-PARSER.set_language(PHP_LANGUAGE)
-
+PARSER = Parser(PHP_LANGUAGE)
 
 def test_taint_tracker_sql_injection():
     """Teste la détection d'une injection SQL."""
@@ -25,9 +24,8 @@ def test_taint_tracker_sql_injection():
     assert vulns[0]["sink"] == "mysqli_query"
     assert vulns[0]["variable"] == "$id"
 
-
 def test_taint_tracker_xss_sanitized():
-    """Teste la non-détection de XSS avec désinfection."""
+    """Teste la nonDétection de XSS avec désinfection."""
     code = """
     <?php
     $input = $_GET['input'];
@@ -39,7 +37,6 @@ def test_taint_tracker_xss_sanitized():
     tracker = TaintTracker(code.encode('utf-8'), ['xss'])
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 0
-
 
 def test_taint_tracker_auth_bypass():
     """Teste la détection d'une comparaison faible."""

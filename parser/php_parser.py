@@ -1,25 +1,29 @@
 # parser/php_parser.py
-
-import tree_sitter_php as tspython
+import tree_sitter_php as tsphp
 from tree_sitter import Language, Parser
 
 # Initialiser le parseur pour PHP
-PHP_LANGUAGE = Language(tspython.language_php())
+PHP_LANGUAGE = Language(tsphp.language_php())
 parser = Parser(PHP_LANGUAGE)
 
 # Liste des fonctions dangereuses à détecter
 DANGEROUS_FUNCTIONS = {'eval', 'exec', 'system', 'shell_exec', 'passthru'}
 
-
 def parse_php_file(file_path):
     """
     Parse un fichier PHP et retourne son arbre syntaxique.
     """
-    with open(file_path, 'r', encoding='utf8') as f:
-        code = f.read()
-    tree = parser.parse(code.encode("utf8"))
-    return tree, code
-
+    try:
+        with open(file_path, 'r', encoding='utf8', errors='replace') as f:
+            code = f.read()
+        tree = parser.parse(code.encode("utf8"))
+        return tree, code
+    except UnicodeDecodeError:
+        print(f"Erreur d'encodage dans {file_path}")
+        return None, None
+    except Exception as e:
+        print(f"Erreur lors de l'analyse de {file_path}: {e}")
+        return None, None
 
 def analyze_php_code(code):
     """
@@ -44,14 +48,13 @@ def analyze_php_code(code):
     traverse(root_node)
     return issues
 
-
 def analyze_php_file(file_path):
     """
     Analyse un fichier PHP et retourne les vulnérabilités détectées.
     """
     try:
-        with open(file_path, 'r', encoding='utf8') as f:
+        with open(file_path, 'r', encoding='utf8', errors='replace') as f:
             code = f.read()
         return analyze_php_code(code)
     except Exception as e:
-        return [f"Erreur lors de l'analyse de {file_path} : {e}"]
+        return [f"Erreur lors de l'analyse de {file_path}: {e}"]
