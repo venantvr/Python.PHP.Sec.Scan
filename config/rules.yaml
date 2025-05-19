@@ -1,0 +1,33 @@
+# config/rules.yaml
+
+sources:
+  - $_GET
+  - $_POST
+  - $_COOKIE
+  - $_REQUEST
+
+filters:
+  - htmlspecialchars
+  - mysqli_real_escape_string
+
+sinks:
+  sql_injection:
+    - mysqli_query
+    - mysql_query
+  xss:
+    - echo
+    - print
+  rce:
+    - system
+    - exec
+    - shell_exec
+    - passthru
+  file_inclusion:
+    - include
+    - require
+    - include_once
+    - require_once
+  insecure_upload:
+    - move_uploaded_file
+  auth_bypass:
+    - header
