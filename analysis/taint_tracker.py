@@ -169,6 +169,7 @@ class TaintTracker:
                                         })
                                 for child in n.children:
                                     find_variables(child)
+
                             find_variables(actual_arg)
 
     def analyze_pattern(self, node: Node, file_path: str) -> None:
@@ -241,6 +242,7 @@ class TaintTracker:
 
     def find_function_definition(self, func_name: str, current_node: Node) -> Node | None:
         """Trouve la déclaration de la fonction dans l'AST."""
+
         def search(node: Node) -> Node | None:
             if node.type == 'function_definition':
                 name_node = node.child_by_field_name('name')
@@ -252,6 +254,7 @@ class TaintTracker:
                 if result:
                     return result
             return None
+
         root = current_node
         while root.parent:
             root = root.parent
