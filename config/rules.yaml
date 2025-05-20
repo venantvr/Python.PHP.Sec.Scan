@@ -1,4 +1,4 @@
-# config/rules.yaml
+# config/rules.dsl
 rules:
   - name: sql_injection
     sources:
@@ -40,9 +40,14 @@ rules:
             type: variable
         vuln: "xss"
     filters:
+      - function: "sanitize_text_field"
+        sanitizes: [ "xss" ]
       - function: "htmlspecialchars"
         sanitizes: [ "xss" ]
       - function: "htmlentities"
+        sanitizes: [ "xss" ]
+        warning: "Use sanitize_text_field instead"
+      - method: "Sanitizer::sanitizeText"
         sanitizes: [ "xss" ]
 
   - name: auth_bypass
