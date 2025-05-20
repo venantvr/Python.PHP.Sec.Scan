@@ -19,7 +19,6 @@ def test_taint_tracker_sql_injection():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['sql_injection'])
-    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 1
     assert vulns[0]["type"] == "sql_injection"
@@ -28,7 +27,7 @@ def test_taint_tracker_sql_injection():
 
 
 def test_taint_tracker_xss_sanitized():
-    """Teste la nonDétection de XSS avec désinfection."""
+    """Teste la non-détection de XSS avec désinfection."""
     code = """
     <?php
     $input = $_GET['input'];
@@ -38,7 +37,6 @@ def test_taint_tracker_xss_sanitized():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['xss'])
-    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 0
 
@@ -54,7 +52,6 @@ def test_taint_tracker_auth_bypass():
     """
     tree = PARSER.parse(code.encode('utf-8'))
     tracker = TaintTracker(code.encode('utf-8'), ['auth_bypass'])
-    # noinspection PyTypeChecker
     vulns = tracker.analyze(tree, "test.php")
     assert len(vulns) == 1
     assert vulns[0]["type"] == "auth_bypass"

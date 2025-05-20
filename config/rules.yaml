@@ -1,45 +1,52 @@
 # config/rules.yaml
-sources:
-  - $_GET
-  - $_POST
-  - $_COOKIE
-  - $_REQUEST
-  - $_FILES
-filters:
-  sql_injection:
-    - mysqli_real_escape_string
-    - filter_var
-  xss:
-    - htmlspecialchars
-    - htmlentities
-  rce:
-    - escapeshellcmd
-    - escapeshellarg
-sinks:
-  sql_injection:
-    - mysqli_query
-    - mysql_query
-  xss:
-    - echo
-    - print
-    - printf
-  rce:
-    - system
-    - exec
-    - shell_exec
-    - passthru
-  file_inclusion:
-    - include
-    - require
-    - include_once
-    - require_once
-auth_checks:
-  - password_verify
-  - hash_equals
-auth_functions:
-  - login
-  - authenticate
-session_functions:
-  - session_regenerate_id
-upload_functions:
-  - move_uploaded_file
+rules:
+  - name: sql_injection
+    sources:
+      - pattern: "$_GET[*]"
+      - pattern: "$_POST[*]"
+      - pattern: "$_REQUEST[*]"
+    sinks:
+      - function: "mysqli_query"
+        args:
+          - index: 1
+            type: string
+            contains: variable
+        vuln: "sql_injection"
+      - function: "mysql_query"
+        args:
+          - index: 0
+            type: string
+            contains: variable
+        vuln: "sql_injection"
+    filters:
+      - function: "mysqli_real_escape_string"
+        sanitizes: [ "sql_injection" ]
+      - function: "filter_var"
+        sanitizes: [ "sql_injection" ]
+
+  - name: xss
+    sources:
+      - pattern: "$_GET[*]"
+      - pattern: "$_POST[*]"
+    sinks:
+      - function: "echo"
+        args:
+          - index: 0
+            type: variable
+        vuln: "xss"
+      - function: "print"
+        args:
+          - index: 0
+            type: variable
+        vuln: "xss"
+    filters:
+      - function: "htmlspecialchars"
+        sanitizes: [ "xss" ]
+      - function: "htmlentities"
+        sanitizes: [ "xss" ]
+
+  - name: auth_bypass
+    patterns:
+      - type: binary_expression
+        operator: "=="
+        vuln: "auth_bypass"
