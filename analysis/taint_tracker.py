@@ -23,6 +23,7 @@ class TaintTracker:
         self.tainted_vars: Set[str] = set()
         self.vulnerabilities: List[Dict[str, Any]] = []
         self.sanitized_vars: Dict[str, Set[str]] = {}  # {var: {vuln_types_safe}}
+        self.sink_nodes: List[Node] = []  # Stocker les nœuds des sinks
         print(f"Initialized rules: {self.rules}")  # Trace de débogage
 
     def is_source(self, node: Node) -> bool:
@@ -30,28 +31,23 @@ class TaintTracker:
         text = get_node_text(node, self.source_code)
         print(f"Checking source: node_type={node.type}, text={text}")  # Trace de débogage
         if node.type == 'subscript_expression':
-            # Vérifier les enfants manuellement si object n'est pas trouvé
             object_node = node.child_by_field_name('object')
             object_text = get_node_text(object_node, self.source_code) if object_node else None
             print(f"Subscript object: {object_text}")  # Trace de débogage
-            # Inspecter les enfants pour déboguer
             for child in node.named_children:
                 child_text = get_node_text(child, self.source_code)
                 print(f"Subscript child: type={child.type}, text={child_text}")  # Trace de débogage
             for rule_name in self.vuln_types:
                 rule = self.rules.get(rule_name, {})
                 for source in rule.get('sources', []):
-                    # Motif plus tolérant pour gérer les guillemets
                     pattern = source['pattern'].replace('[*]', r'\[\'?.*?\'?\]')
                     print(f"Testing pattern: {pattern} against text: {text}")  # Trace de débogage
                     if re.match(pattern, text, re.DOTALL):
                         print(f"Source detected (regex): {text}, pattern={pattern}")  # Trace de débogage
                         return True
-                    # Vérifier l'objet directement
                     if object_text in ['$_GET', '$_POST', '$_REQUEST']:
                         print(f"Source detected (object): {text}, object={object_text}")  # Trace de débogage
                         return True
-                    # Vérifier les enfants
                     for child in node.named_children:
                         if child.type == 'variable_name' and get_node_text(child, self.source_code) in ['$_GET', '$_POST', '$_REQUEST']:
                             print(f"Source detected (child): {text}, child={get_node_text(child, self.source_code)}")  # Trace de débogage
@@ -96,6 +92,7 @@ class TaintTracker:
         if args_node:
             args = args_node.named_children
             print(f"Analyzing sink: {func_name}, args_count={len(args)}")  # Trace de débogage
+            print(f"Tainted vars before sink analysis: {self.tainted_vars}")  # Trace de débogage
             for arg_rule in args_to_check:
                 arg_index = arg_rule['index']
                 arg_type = arg_rule['type']
@@ -134,7 +131,6 @@ class TaintTracker:
                                         })
                                 for child in n.children:
                                     find_variables(child)
-
                             find_variables(actual_arg)
 
     def analyze_pattern(self, node: Node, file_path: str) -> None:
@@ -169,14 +165,35 @@ class TaintTracker:
                     self.tainted_vars.add(var_name)
 
         elif node.type == 'function_call_expression':
+            func_node = node.child_by_field_name('function')
+            if func_node:
+                func_name = get_node_text(func_node, self.source_code)
+                print(f"Processing function call: {func_name}")  # Trace de débogage
+                args_node = node.child_by_field_name('arguments')
+                if args_node and func_name not in ['mysqli_query', 'mysql_query', 'echo', 'print', 'htmlspecialchars', 'htmlentities', 'mysqli_real_escape_string',
+                                                   'filter_var']:
+                    args = args_node.named_children
+                    func_def = self.find_function_definition(func_name, node)
+                    print(f"Function definition for {func_name}: {'found' if func_def else 'not found'}")  # Trace de débogage
+                    if func_def:
+                        params = self.get_function_params(func_def)
+                        print(f"Parameters for {func_name}: {params}")  # Trace de débogage
+                        for i, arg in enumerate(args):
+                            if i < len(params) and arg.type == 'argument' and arg.named_children:
+                                arg_var = get_node_text(arg.named_children[0], self.source_code)
+                                print(f"Argument {i}: {arg_var}, tainted: {arg_var in self.tainted_vars}")  # Trace de débogage
+                                if arg_var in self.tainted_vars:
+                                    param_var = params[i]
+                                    self.tainted_vars.add(param_var)
+                                    print(f"Propagated taint: {arg_var} -> {param_var} in {func_name}")  # Trace de débogage
             is_filter, sanitized_types = self.is_filter_call(node)
             if is_filter:
                 args = node.child_by_field_name('arguments')
                 if args and args.named_children and args.named_children[0].type == 'argument' and args.named_children[0].named_children:
                     var_name = get_node_text(args.named_children[0].named_children[0], self.source_code)
                     self.sanitized_vars.setdefault(var_name, set()).update(sanitized_types)
-            else:
-                self.analyze_sink(node, file_path)
+            elif self.get_sink_info(func_name)[0]:  # Si c'est un sink, stocker le nœud
+                self.sink_nodes.append(node)
 
         elif node.type == 'binary_expression':
             self.analyze_pattern(node, file_path)
@@ -184,10 +201,51 @@ class TaintTracker:
         for child in node.children:
             self.track_taint(child, file_path)
 
+    def find_function_definition(self, func_name: str, current_node: Node) -> Node | None:
+        """Trouve la déclaration de la fonction dans l'AST."""
+
+        def search(node: Node) -> Node | None:
+            if node.type == 'function_definition':
+                name_node = node.child_by_field_name('name')
+                if name_node and get_node_text(name_node, self.source_code) == func_name:
+                    print(f"Found function definition: {func_name}")  # Trace de débogage
+                    return node
+            for child in node.children:
+                result = search(child)
+                if result:
+                    return result
+            return None
+
+        root = current_node
+        while root.parent:
+            root = root.parent
+        return search(root)
+
+    def get_function_params(self, func_def: Node) -> List[str]:
+        """Extrait les noms des paramètres d'une fonction."""
+        params = []
+        parameters_node = func_def.child_by_field_name('parameters')
+        print(f"Parameters node: {'found' if parameters_node else 'not found'}")  # Trace de débogage
+        if parameters_node:
+            print(f"Parameters node type: {parameters_node.type}")  # Trace de débogage
+            for param in parameters_node.children:
+                print(f"Parameter child: type={param.type}, text={get_node_text(param, self.source_code)}")  # Trace de débogage
+                if param.type == 'simple_parameter':
+                    for child in param.children:
+                        if child.type == 'variable_name':
+                            param_name = get_node_text(child, self.source_code)
+                            params.append(param_name)
+                            print(f"Found parameter: {param_name}")  # Trace de débogage
+        return params
+
     def analyze(self, tree: Node, file_path: str) -> List[Dict[str, Any]]:
         """Analyse l'AST pour détecter les vulnérabilités."""
         self.tainted_vars.clear()
         self.vulnerabilities.clear()
         self.sanitized_vars.clear()
+        self.sink_nodes.clear()
         self.track_taint(tree.root_node, file_path)
+        print(f"Tainted vars after taint propagation: {self.tainted_vars}")  # Trace de débogage
+        for sink_node in self.sink_nodes:
+            self.analyze_sink(sink_node, file_path)
         return self.vulnerabilities

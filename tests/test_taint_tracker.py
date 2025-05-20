@@ -56,3 +56,23 @@ def test_taint_tracker_auth_bypass():
     assert len(vulns) == 1
     assert vulns[0]["type"] == "auth_bypass"
     assert "weak_comparison" in vulns[0]["sink"]
+
+
+def test_taint_tracker_sql_injection_function_param():
+    """Teste la détection d'une injection SQL via un paramètre de fonction."""
+    code = """
+    <?php
+    function run_query($conn, $value) {
+        mysqli_query($conn, "SELECT * FROM users WHERE id = $value");
+    }
+    $id = $_GET['id'];
+    run_query($conn, $id);
+    ?>
+    """
+    tree = PARSER.parse(code.encode('utf-8'))
+    tracker = TaintTracker(code.encode('utf-8'), ['sql_injection'])
+    vulns = tracker.analyze(tree, "test.php")
+    assert len(vulns) == 1
+    assert vulns[0]["type"] == "sql_injection"
+    assert vulns[0]["sink"] == "mysqli_query"
+    assert vulns[0]["variable"] == "$value"
