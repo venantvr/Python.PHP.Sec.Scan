@@ -47,6 +47,22 @@ class TaintTracker:
             'binary_expression': self.handle_binary_expression,
         }
 
+    @staticmethod
+    def analyze_file(file_path: str, vuln_types: List[str], verbose: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+        """Analyse un fichier PHP et retourne les vulnérabilités et avertissements."""
+        try:
+            with open(file_path, 'rb') as f:
+                source_code = f.read()
+            tree = PARSER.parse(source_code)
+            tracker = TaintTracker(source_code, vuln_types, verbose)
+            return tracker.analyze(tree, file_path)
+        except FileNotFoundError:
+            logger.error(f"Fichier introuvable : {file_path}")
+            return {"vulnerabilities": [], "warnings": []}
+        except Exception as e:
+            logger.error(f"Erreur lors de l'analyse de {file_path}: {e}")
+            return {"vulnerabilities": [], "warnings": []}
+
     def _load_sinks(self) -> Dict[str, Set[str]]:
         """Charge les sinks depuis rules.dsl, organisés par node_type."""
         sinks = {'function_call_expression': set(), 'echo_statement': set()}

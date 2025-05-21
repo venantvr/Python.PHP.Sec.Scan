@@ -1,38 +1,37 @@
 # cli.py
 import argparse
-import os
+import sys
 
-from scanner import main
-
-VULN_TYPES = [
-    "sql_injection",
-    "xss",
-    "rce",
-    "file_inclusion",
-    "auth_bypass",
-    "insecure_upload",
-    "session_fixation",
-]
+from analysis.scanner import Scanner
 
 
-def parse_args():
-    """Parse les arguments de la ligne de commande."""
-    parser = argparse.ArgumentParser(description="phpsecscan : analyse statique hybride de sécurité pour projets PHP")
-    parser.add_argument("path", help="Chemin vers le répertoire du projet PHP à analyser")
-    parser.add_argument("--vuln-types", nargs="+", choices=VULN_TYPES, help="Types de vulnérabilités à rechercher")
-    parser.add_argument("--output", default="report/report.json", help="Chemin de sortie pour le rapport JSON")
-    parser.add_argument("--exclude-dirs", nargs="+", default=["vendor", ".git"], help="Dossiers à exclure de l'analyse")
+def main():
+    """Point d'entrée CLI pour analyser des fichiers PHP ou répertoires."""
+    parser = argparse.ArgumentParser(description="Analyse statique de code PHP pour détecter les vulnérabilités.")
+    parser.add_argument('--files', nargs='*', help="Fichiers PHP à analyser")
+    parser.add_argument('--dir', help="Répertoire contenant les fichiers PHP")
+    parser.add_argument('--vuln-types', nargs='*', default=['xss', 'sql_injection', 'auth_bypass'],
+                        help="Types de vulnérabilités à détecter")
+    parser.add_argument('--output', default="report/scan_report.json",
+                        help="Chemin du fichier de sortie JSON")
+    parser.add_argument('--verbose', action='store_true', help="Activer les logs détaillés")
     args = parser.parse_args()
-    if not os.path.isdir(args.path):
-        parser.error(f"Le chemin {args.path} n'est pas un répertoire valide")
-    return args
 
+    if not args.files and not args.dir:
+        parser.error("Vous devez spécifier au moins --files ou --dir")
 
-def run():
-    """Exécute l'analyse avec les arguments fournis."""
-    args = parse_args()
-    main(args.path, vuln_types=args.vuln_types, output_file=args.output)
+    scanner = Scanner(args.vuln_types, args.verbose)
+    if args.files:
+        results = scanner.scan_files(args.files)
+    else:
+        results = scanner.scan_directory(args.dir)
 
+    scanner.print_summary()
+    scanner.save_results(args.output)
+
+    # Code de retour : 1 si vulnérabilités détectées, 0 sinon
+    total_vulns = sum(len(r['vulnerabilities']) for r in results.values())
+    sys.exit(1 if total_vulns > 0 else 0)
 
 if __name__ == "__main__":
-    run()
+    main()
