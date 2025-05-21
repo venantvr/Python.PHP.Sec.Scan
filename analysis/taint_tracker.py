@@ -41,18 +41,24 @@ class TaintTracker:
             for rule_name in self.vuln_types:
                 rule = self.rules.get(rule_name, {})
                 for source in rule.get('sources', []):
-                    pattern = source['pattern'].replace('[*]', r'\[\'?.*?\'?\]')
+                    pattern = source['pattern'].replace('[*]', r"\['?.*?'?\]")
                     print(f"Testing pattern: {pattern} against text: {text}")  # Trace de débogage
                     if re.match(pattern, text, re.DOTALL):
                         print(f"Source detected (regex): {text}, pattern={pattern}")  # Trace de débogage
                         return True
-                    if object_text in ['$_GET', '$_POST', '$_REQUEST']:
+                    if object_text in ['$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_FILES', '$_SERVER', '$_ENV']:
                         print(f"Source detected (object): {text}, object={object_text}")  # Trace de débogage
                         return True
                     for child in node.named_children:
-                        if child.type == 'variable_name' and get_node_text(child, self.source_code) in ['$_GET', '$_POST', '$_REQUEST']:
+                        if child.type == 'variable_name' and get_node_text(child, self.source_code) in ['$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_FILES', '$_SERVER',
+                                                                                                        '$_ENV']:
                             print(f"Source detected (child): {text}, child={get_node_text(child, self.source_code)}")  # Trace de débogage
                             return True
+        elif node.type == 'variable_name':
+            var_text = get_node_text(node, self.source_code)
+            if var_text in ['$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_FILES', '$_SERVER', '$_ENV']:
+                print(f"Source detected (direct variable): {var_text}")  # Trace de débogage
+                return True
         return False
 
     def is_filter_call(self, node: Node) -> tuple[bool, List[str]]:
@@ -118,59 +124,81 @@ class TaintTracker:
 
     def analyze_sink(self, node: Node, file_path: str) -> None:
         """Analyse un sink pour détecter les vulnérabilités."""
-        func_node = node.child_by_field_name('function')
-        if not func_node:
-            return
-        func_name = get_node_text(func_node, self.source_code)
+        func_name = None
+        args = []
+        vuln_type = ""
+        args_to_check = []
+
+        if node.type == 'function_call_expression':
+            func_node = node.child_by_field_name('function')
+            if not func_node:
+                return
+            func_name = get_node_text(func_node, self.source_code)
+            args_node = node.child_by_field_name('arguments')
+            if args_node:
+                args = args_node.named_children
+        elif node.type == 'echo_statement':
+            func_name = 'echo'  # Traiter comme un sink défini dans rules.dsl
+            args = node.named_children  # Les arguments sont les enfants directs
+
         vuln_type, args_to_check = self.get_sink_info(func_name)
         if not vuln_type:
             return
 
-        args_node = node.child_by_field_name('arguments')
-        if args_node:
-            args = args_node.named_children
-            print(f"Analyzing sink: {func_name}, args_count={len(args)}")  # Trace de débogage
-            print(f"Tainted vars before sink analysis: {self.tainted_vars}")  # Trace de débogage
-            for arg_rule in args_to_check:
-                arg_index = arg_rule['index']
-                arg_type = arg_rule['type']
-                if arg_index < len(args):
-                    arg = args[arg_index]
-                    print(f"Checking arg {arg_index}: type={arg.type}")  # Trace de débogage
-                    if arg.type == 'argument' and arg.named_children:
-                        actual_arg = arg.named_children[0]
-                        print(f"Actual arg type: {actual_arg.type}")  # Trace de débogage
-                        if arg_type == 'variable' and actual_arg.type == 'variable_name':
-                            var_name = get_node_text(actual_arg, self.source_code)
-                            print(f"Variable arg: {var_name}, tainted: {var_name in self.tainted_vars}")  # Trace de débogage
-                            if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
-                                self.vulnerabilities.append({
-                                    "type": vuln_type,
-                                    "sink": func_name,
-                                    "variable": var_name,
-                                    "line": node.start_point[0] + 1,
-                                    "file": file_path,
-                                    "trace": f"Source tainted: {var_name} → Sink: {func_name}"
-                                })
-                        elif arg_type == 'string' and actual_arg.type in ['string', 'encapsed_string']:
-                            def find_variables(n: Node):
-                                if n.type in ['variable_name', 'encapsed_variable']:
-                                    var_name = get_node_text(n, self.source_code)
-                                    print(f"Variable in string: {var_name}, tainted: {var_name in self.tainted_vars}")  # Trace de débogage
-                                    if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
-                                        print(f"Adding vulnerability: {vuln_type} for {var_name} at line {node.start_point[0] + 1}")  # Trace de débogage
-                                        self.vulnerabilities.append({
-                                            "type": vuln_type,
-                                            "sink": func_name,
-                                            "variable": var_name,
-                                            "line": node.start_point[0] + 1,
-                                            "file": file_path,
-                                            "trace": f"Source tainted: {var_name} → Sink: {func_name} (in string)"
-                                        })
-                                for child in n.children:
-                                    find_variables(child)
+        print(f"Analyzing sink: {func_name}, args_count={len(args)}")  # Trace de débogage
+        print(f"Tainted vars before sink analysis: {self.tainted_vars}")  # Trace de débogage
+        for arg_rule in args_to_check:
+            arg_index = arg_rule['index']
+            arg_type = arg_rule['type']
+            if arg_index < len(args):
+                arg = args[arg_index]
+                print(f"Checking arg {arg_index}: type={arg.type}")  # Trace de débogage
+                if arg.type == 'argument' and arg.named_children:  # Pour function_call_expression
+                    actual_arg = arg.named_children[0]
+                    print(f"Actual arg type: {actual_arg.type}")  # Trace de débogage
+                    if arg_type == 'variable' and actual_arg.type == 'variable_name':
+                        var_name = get_node_text(actual_arg, self.source_code)
+                        print(f"Variable arg: {var_name}, tainted: {var_name in self.tainted_vars}")  # Trace de débogage
+                        if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                            self.vulnerabilities.append({
+                                "type": vuln_type,
+                                "sink": func_name,
+                                "variable": var_name,
+                                "line": node.start_point[0] + 1,
+                                "file": file_path,
+                                "trace": f"Source tainted: {var_name} → Sink: {func_name}"
+                            })
+                    elif arg_type == 'string' and actual_arg.type in ['string', 'encapsed_string']:
+                        def find_variables(n: Node):
+                            if n.type in ['variable_name', 'encapsed_variable']:
+                                var_name = get_node_text(n, self.source_code)
+                                print(f"Variable in string: {var_name}, tainted: {var_name in self.tainted_vars}")  # Trace de débogage
+                                if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                                    print(f"Adding vulnerability: {vuln_type} for {var_name} at line {node.start_point[0] + 1}")  # Trace de débogage
+                                    self.vulnerabilities.append({
+                                        "type": vuln_type,
+                                        "sink": func_name,
+                                        "variable": var_name,
+                                        "line": node.start_point[0] + 1,
+                                        "file": file_path,
+                                        "trace": f"Source tainted: {var_name} → Sink: {func_name} (in string)"
+                                    })
+                            for child in n.children:
+                                find_variables(child)
 
-                            find_variables(actual_arg)
+                        find_variables(actual_arg)
+                elif arg_type == 'variable' and arg.type == 'variable_name':  # Pour echo_statement
+                    var_name = get_node_text(arg, self.source_code)
+                    print(f"Variable arg: {var_name}, tainted: {var_name in self.tainted_vars}")  # Trace de débogage
+                    if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                        self.vulnerabilities.append({
+                            "type": vuln_type,
+                            "sink": func_name,
+                            "variable": var_name,
+                            "line": node.start_point[0] + 1,
+                            "file": file_path,
+                            "trace": f"Source tainted: {var_name} → Sink: {func_name}"
+                        })
 
     def analyze_pattern(self, node: Node, file_path: str) -> None:
         """Analyse les motifs spécifiques (ex. auth_bypass)."""
@@ -189,6 +217,30 @@ class TaintTracker:
                         "trace": f"Comparaison faible (==) détectée"
                     })
 
+    def has_tainted_return(self, func_def: Node) -> bool:
+        """Vérifie si une fonction retourne une valeur tainted."""
+
+        def check_node(node: Node) -> bool:
+            if node.type == 'return_statement' and node.named_children:
+                return_value = node.named_children[0]
+                print(f"Checking return value: type={return_value.type}, text={get_node_text(return_value, self.source_code)}")  # Trace de débogage
+                if self.is_source(return_value):
+                    print(f"Tainted return detected: source")  # Trace de débogage
+                    return True
+                if return_value.type == 'variable_name' and get_node_text(return_value, self.source_code) in self.tainted_vars:
+                    print(f"Tainted return detected: variable {get_node_text(return_value, self.source_code)}")  # Trace de débogage
+                    return True
+                for child in return_value.named_children:
+                    if check_node(child):
+                        return True
+            for child in node.children:
+                if check_node(child):
+                    return True
+            return False
+
+        print(f"Analyzing function for tainted return")  # Trace de débogage
+        return check_node(func_def)
+
     def track_taint(self, node: Node, file_path: str) -> None:
         """Suit récursivement les flux de données dans l'AST."""
         if node.type == 'assignment_expression':
@@ -200,8 +252,17 @@ class TaintTracker:
                 if self.is_source(right):
                     self.tainted_vars.add(var_name)
                     print(f"Tainted var: {var_name}")  # Trace de débogage
+                elif right.type == 'function_call_expression':
+                    func_node = right.child_by_field_name('function')
+                    if func_node:
+                        func_name = get_node_text(func_node, self.source_code)
+                        func_def = self.find_function_definition(func_name, right)
+                        if func_def and self.has_tainted_return(func_def):
+                            self.tainted_vars.add(var_name)
+                            print(f"Tainted var from function return: {var_name}")  # Trace de débogage
                 elif any(get_node_text(c, self.source_code) in self.tainted_vars for c in right.named_children if c.type == 'variable_name'):
                     self.tainted_vars.add(var_name)
+                    print(f"Tainted var from variable: {var_name}")  # Trace de débogage
 
         elif node.type in ['function_call_expression', 'member_call_expression']:
             func_node = node.child_by_field_name('function') or node.child_by_field_name('name')
@@ -225,13 +286,17 @@ class TaintTracker:
                                     param_var = params[i]
                                     self.tainted_vars.add(param_var)
                                     print(f"Propagated taint: {arg_var} -> {param_var} in {func_name}")  # Trace de débogage
-            is_filter, sanitized_types = self.is_filter_call(node)
-            if is_filter:
-                args = node.child_by_field_name('arguments')
-                if args and args.named_children and args.named_children[0].type == 'argument' and args.named_children[0].named_children:
-                    var_name = get_node_text(args.named_children[0].named_children[0], self.source_code)
-                    self.sanitized_vars.setdefault(var_name, set()).update(sanitized_types)
-            elif self.get_sink_info(func_name)[0]:  # Si c'est un sink, stocker le nœud
+                is_filter, sanitized_types = self.is_filter_call(node)
+                if is_filter:
+                    args = node.child_by_field_name('arguments')
+                    if args and args.named_children and args.named_children[0].type == 'argument' and args.named_children[0].named_children:
+                        var_name = get_node_text(args.named_children[0].named_children[0], self.source_code)
+                        self.sanitized_vars.setdefault(var_name, set()).update(sanitized_types)
+                elif self.get_sink_info(func_name)[0]:  # Si c'est un sink, stocker le nœud
+                    self.sink_nodes.append(node)
+        elif node.type == 'echo_statement':
+            if self.get_sink_info('echo')[0]:  # Vérifier si echo est un sink dans rules.dsl
+                print(f"Processing echo statement as sink")  # Trace de débogage
                 self.sink_nodes.append(node)
 
         elif node.type == 'binary_expression':

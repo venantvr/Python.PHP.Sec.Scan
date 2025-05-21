@@ -125,3 +125,26 @@ def test_taint_tracker_xss_class_method_sanitization():
     warnings = result["warnings"]
     assert len(vulns) == 0
     assert len(warnings) == 0
+
+
+def test_taint_tracker_xss_function_return():
+    """Teste la détection d'une vulnérabilité XSS via le retour d'une fonction."""
+    code = """
+    <?php
+    function get_tainted() {
+        return $_POST['data'];
+    }
+    $x = get_tainted();
+    echo $x;
+    ?>
+    """
+    tree = PARSER.parse(code.encode('utf-8'))
+    tracker = TaintTracker(code.encode('utf-8'), ['xss'])
+    result = tracker.analyze(tree, "test.php")
+    vulns = result["vulnerabilities"]
+    warnings = result["warnings"]
+    assert len(vulns) == 1
+    assert vulns[0]["type"] == "xss"
+    assert vulns[0]["sink"] == "echo"
+    assert vulns[0]["variable"] == "$x"
+    assert len(warnings) == 0
