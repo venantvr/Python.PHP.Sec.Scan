@@ -9,12 +9,16 @@ def parse_dsl(file_path: str = "../config/rules.yaml") -> Dict[str, Any]:
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             dsl = yaml.safe_load(f)
-        print(f"Parsed DSL: {dsl}")  # Trace de débogage
+        print(f"Parsed DSL content: {dsl}")
     except FileNotFoundError:
         print(f"Erreur : Fichier {file_path} introuvable")
         return {}
     except yaml.YAMLError as e:
         print(f"Erreur YAML dans {file_path}: {e}")
+        return {}
+
+    if not dsl or 'rules' not in dsl:
+        print(f"Erreur : Clé 'rules' absente ou DSL vide dans {file_path}")
         return {}
 
     rules = {}
@@ -24,10 +28,12 @@ def parse_dsl(file_path: str = "../config/rules.yaml") -> Dict[str, Any]:
             print(f"Erreur : Règle sans nom dans {file_path}")
             continue
         rules[rule_name] = {
+            "name": rule_name,
             "sources": rule.get("sources", []),
             "sinks": rule.get("sinks", []),
             "filters": rule.get("filters", []),
             "patterns": rule.get("patterns", [])
         }
-    print(f"Loaded rules: {rules}")  # Trace de débogage
+        print(f"Loaded rule: {rule_name}")
+    print(f"All loaded rules: {list(rules.keys())}")
     return rules

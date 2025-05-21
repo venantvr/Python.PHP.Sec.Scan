@@ -1,4 +1,4 @@
-# config/rules.dsl
+# config/rules.yaml
 rules:
   - name: sql_injection
     sources:
@@ -6,13 +6,15 @@ rules:
       - pattern: "$_POST[*]"
       - pattern: "$_REQUEST[*]"
     sinks:
-      - function: "mysqli_query"
+      - node_type: "function_call_expression"
+        function: "mysqli_query"
         args:
           - index: 1
             type: string
             contains: variable
         vuln: "sql_injection"
-      - function: "mysql_query"
+      - node_type: "function_call_expression"
+        function: "mysql_query"
         args:
           - index: 0
             type: string
@@ -29,12 +31,13 @@ rules:
       - pattern: "$_GET[*]"
       - pattern: "$_POST[*]"
     sinks:
-      - function: "echo"
+      - node_type: "echo_statement"
         args:
           - index: 0
             type: variable
         vuln: "xss"
-      - function: "print"
+      - node_type: "function_call_expression"
+        function: "print"
         args:
           - index: 0
             type: variable
@@ -47,7 +50,7 @@ rules:
       - function: "htmlentities"
         sanitizes: [ "xss" ]
         warning: "Use sanitize_text_field instead"
-      - method: "Sanitizer::sanitizeText"
+      - method: [ "Sanitizer::sanitizeText" ]
         sanitizes: [ "xss" ]
 
   - name: auth_bypass
