@@ -17,6 +17,7 @@ PARSER = Parser(PHP_LANGUAGE)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class TaintTracker:
     """Suit les flux de données pour détecter les vulnérabilités via taint tracking."""
 
@@ -329,6 +330,7 @@ class TaintTracker:
                                     self.logger.info(f"Adding vulnerability: {vuln_type} for {var_name} (in string)")
                             for child in n.children:
                                 find_variables(child)
+
                         find_variables(actual_arg)
                 elif arg_type == 'variable' and arg.type == 'variable_name':  # echo_statement
                     var_name = get_node_text(arg, self.source_code)
@@ -346,6 +348,7 @@ class TaintTracker:
 
     def has_tainted_return(self, func_def: Node) -> bool:
         """Vérifie si une fonction retourne une valeur tainted."""
+
         def check_node(node: Node) -> bool:
             if node.type == 'return_statement' and node.named_children:
                 return_value = node.named_children[0]
@@ -369,6 +372,7 @@ class TaintTracker:
 
     def find_function_definition(self, func_name: str, current_node: Node) -> Node | None:
         """Trouve la déclaration de la fonction dans l'AST."""
+
         def search(node: Node) -> Node | None:
             if node.type == 'function_definition':
                 name_node = node.child_by_field_name('name')
@@ -380,6 +384,7 @@ class TaintTracker:
                 if result:
                     return result
             return None
+
         root = current_node
         while root.parent:
             root = root.parent

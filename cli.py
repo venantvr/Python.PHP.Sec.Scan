@@ -33,5 +33,6 @@ def main():
     total_vulns = sum(len(r['vulnerabilities']) for r in results.values())
     sys.exit(1 if total_vulns > 0 else 0)
 
+
 if __name__ == "__main__":
     main()
