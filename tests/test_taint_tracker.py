@@ -148,3 +148,20 @@ def test_taint_tracker_xss_function_return():
     assert vulns[0]["sink"] == "echo"
     assert vulns[0]["variable"] == "$x"
     assert len(warnings) == 0
+
+
+def test_taint_tracker_unsanitized_source():
+    """Teste l'avertissement pour une source lue sans sanitization."""
+    code = """
+    <?php
+    $id = $_GET['id'];
+    $var = $id; // Propagation sans sanitization
+    ?>
+    """
+    tree = PARSER.parse(code.encode('utf-8'))
+    tracker = TaintTracker(code.encode('utf-8'), ['sql_injection'], verbose=True)  # Activer verbose
+    result = tracker.analyze(tree, "test.php")
+    warnings = result["warnings"]
+    assert len(warnings) >= 1
+    assert any(w["type"] == "unsanitized_source" and w["variable"] == "$id" for w in warnings)
+    assert any(w["type"] == "unsanitized_source" and w["variable"] == "$var" for w in warnings)
