@@ -6,6 +6,8 @@ from typing import List, Dict, Set, Any
 import tree_sitter_php as tsphp
 from tree_sitter import Node, Language, Parser
 
+from analysis.taint_state import TaintState
+from analysis.warning_manager import WarningManager
 from config.dsl_parser import parse_dsl
 from utils.text import get_node_text
 
@@ -26,10 +28,10 @@ class TaintTracker:
         self.source_code = source_code
         self.rules = parse_dsl()  # Charge rules.dsl
         self.vuln_types = vuln_types
-        self.tainted_vars: Set[str] = set()  # Variables tainted
+        self.taint_state = TaintState()  # Remplace tainted_vars, tainted_vars_info, sanitized_vars
         self.vulnerabilities: List[Dict[str, Any]] = []  # Vulnérabilités détectées
-        self.warnings: List[Dict[str, Any]] = []  # Avertissements (ex. htmlentities)
-        self.sanitized_vars: Dict[str, Set[str]] = {}  # Variables sanitized
+        # self.warnings: List[Dict[str, Any]] = []  # Avertissements (ex. htmlentities)
+        self.warning_manager = WarningManager()  # Gestion des avertissements
         self.sink_nodes: List[Node] = []  # Nœuds sinks à analyser
         self.verbose = True
         self.logger = logger
@@ -160,15 +162,17 @@ class TaintTracker:
                     sanitized_types = filter_info['sanitizes']
                     warning = filter_info.get('warning')
 
-        if is_filter and warning:
-            self.warnings.append({
-                "type": "non_preferred_filter",
-                "function": filter_name,
-                "line": node.start_point[0] + 1,
-                "file": None,  # Défini dans analyze
-                "message": warning
-            })
-            self.logger.info(f"Warning added: {warning} for {filter_name}")
+        if is_filter and warning and filter_name:
+            try:
+                self.warning_manager.add_warning(
+                    "non_preferred_filter",
+                    function=filter_name,
+                    line=node.start_point[0] + 1,
+                    file=None,  # Défini dans analyze
+                    message=warning
+                )
+            except Exception as e:
+                self.logger.error(f"Erreur lors de l'ajout de l'avertissement pour {filter_name}: {e}")
 
         return is_filter, sanitized_types, filter_name
 
@@ -180,13 +184,8 @@ class TaintTracker:
             var_name = get_node_text(left, self.source_code)
             self.logger.info(f"Assignment: var={var_name}, right_type={right.type}")
 
-            # Initialiser tainted_vars_info si nécessaire
-            if not hasattr(self, 'tainted_vars_info'):
-                self.tainted_vars_info = {}  # {var_name: line_number}
-
             if self.is_source(right):
-                self.tainted_vars.add(var_name)
-                self.tainted_vars_info[var_name] = node.start_point[0] + 1
+                self.taint_state.mark_tainted(var_name, node.start_point[0] + 1)
                 self.logger.info(f"Tainted var: {var_name} (source) at line {node.start_point[0] + 1}")
             elif right.type == 'function_call_expression':
                 func_node = right.child_by_field_name('function')
@@ -194,17 +193,16 @@ class TaintTracker:
                     func_name = get_node_text(func_node, self.source_code)
                     func_def = self.find_function_definition(func_name, right)
                     if func_def and self.has_tainted_return(func_def):
-                        self.tainted_vars.add(var_name)
-                        self.tainted_vars_info[var_name] = node.start_point[0] + 1
+                        self.taint_state.mark_tainted(var_name, node.start_point[0] + 1)
                         self.logger.info(f"Tainted var: {var_name} (function return) at line {node.start_point[0] + 1}")
             elif right.type == 'variable_name':
                 source_var = get_node_text(right, self.source_code)
-                self.logger.info(f"Checking propagation from variable: {source_var}, is_tainted: {source_var in self.tainted_vars}")
-                if source_var in self.tainted_vars:
-                    self.tainted_vars.add(var_name)
-                    self.tainted_vars_info[var_name] = node.start_point[0] + 1
+                self.logger.info(f"Checking propagation from variable: {source_var}, is_tainted: {self.taint_state.is_tainted(source_var)}")
+                if self.taint_state.is_tainted(source_var):
+                    self.taint_state.mark_tainted(var_name, node.start_point[0] + 1)
                     self.logger.info(f"Tainted var: {var_name} (propagated from {source_var}) at line {node.start_point[0] + 1}")
-                    self.logger.info(f"After propagation: tainted_vars={self.tainted_vars}, tainted_vars_info={self.tainted_vars_info}")
+                    self.logger.info(
+                        f"After propagation: tainted_vars={self.taint_state.get_tainted_vars()}, tainted_vars_info={self.taint_state.get_tainted_vars_info()}")
 
     def handle_function_call(self, node: Node) -> None:
         """Gère les appels de fonctions pour propagation et sinks."""
@@ -217,7 +215,7 @@ class TaintTracker:
                 args = node.child_by_field_name('arguments')
                 if args and args.named_children and args.named_children[0].type == 'argument' and args.named_children[0].named_children:
                     var_name = get_node_text(args.named_children[0].named_children[0], self.source_code)
-                    self.sanitized_vars.setdefault(var_name, set()).update(sanitized_types)
+                    self.taint_state.mark_sanitized(var_name, sanitized_types)
                     self.logger.info(f"Sanitized var: {var_name} by {filter_name}")
             elif func_name in self.sink_functions['function_call_expression']:
                 self.sink_nodes.append(node)
@@ -231,9 +229,9 @@ class TaintTracker:
                         for i, arg in enumerate(args.named_children):
                             if i < len(params) and arg.type == 'argument' and arg.named_children:
                                 arg_var = get_node_text(arg.named_children[0], self.source_code)
-                                if arg_var in self.tainted_vars:
+                                if self.taint_state.is_tainted(arg_var):
                                     param_var = params[i]
-                                    self.tainted_vars.add(param_var)
+                                    self.taint_state.mark_tainted(param_var, node.start_point[0] + 1)
                                     self.logger.info(f"Propagated taint: {arg_var} -> {param_var} in {func_name}")
 
     def handle_member_call(self, node: Node) -> None:
@@ -243,7 +241,7 @@ class TaintTracker:
             args = node.child_by_field_name('arguments')
             if args and args.named_children and args.named_children[0].type == 'argument' and args.named_children[0].named_children:
                 var_name = get_node_text(args.named_children[0].named_children[0], self.source_code)
-                self.sanitized_vars.setdefault(var_name, set()).update(sanitized_types)
+                self.taint_state.mark_sanitized(var_name, sanitized_types)
                 self.logger.info(f"Sanitized var: {var_name} by {filter_name}")
 
     def handle_echo_statement(self, node: Node) -> None:
@@ -301,7 +299,7 @@ class TaintTracker:
             return
 
         self.logger.info(f"Analyzing sink: {func_name}, args_count={len(args)}")
-        self.logger.info(f"Tainted vars before sink analysis: {self.tainted_vars}")
+        self.logger.info(f"Tainted vars before sink analysis: {self.taint_state.get_tainted_vars()}")
         for arg_rule in args_to_check:
             arg_index = arg_rule['index']
             arg_type = arg_rule['type']
@@ -313,8 +311,8 @@ class TaintTracker:
                     self.logger.info(f"Actual arg type: {actual_arg.type}")
                     if arg_type == 'variable' and actual_arg.type == 'variable_name':
                         var_name = get_node_text(actual_arg, self.source_code)
-                        self.logger.info(f"Variable arg: {var_name}, tainted: {var_name in self.tainted_vars}")
-                        if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                        self.logger.info(f"Variable arg: {var_name}, tainted: {self.taint_state.is_tainted(var_name)}")
+                        if self.taint_state.is_tainted(var_name) and not self.taint_state.is_sanitized_for(var_name, vuln_type):
                             self.vulnerabilities.append({
                                 "type": vuln_type,
                                 "sink": func_name,
@@ -328,8 +326,8 @@ class TaintTracker:
                         def find_variables(n: Node):
                             if n.type in ['variable_name', 'encapsed_variable']:
                                 var_name = get_node_text(n, self.source_code)
-                                self.logger.info(f"Variable in string: {var_name}, tainted: {var_name in self.tainted_vars}")
-                                if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                                self.logger.info(f"Variable in string: {var_name}, tainted: {self.taint_state.is_tainted(var_name)}")
+                                if self.taint_state.is_tainted(var_name) and not self.taint_state.is_sanitized_for(var_name, vuln_type):
                                     self.vulnerabilities.append({
                                         "type": vuln_type,
                                         "sink": func_name,
@@ -345,8 +343,8 @@ class TaintTracker:
                         find_variables(actual_arg)
                 elif arg_type == 'variable' and arg.type == 'variable_name':  # echo_statement
                     var_name = get_node_text(arg, self.source_code)
-                    self.logger.info(f"Variable arg: {var_name}, tainted: {var_name in self.tainted_vars}")
-                    if var_name in self.tainted_vars and vuln_type not in self.sanitized_vars.get(var_name, set()):
+                    self.logger.info(f"Variable arg: {var_name}, tainted: {self.taint_state.is_tainted(var_name)}")
+                    if self.taint_state.is_tainted(var_name) and not self.taint_state.is_sanitized_for(var_name, vuln_type):
                         self.vulnerabilities.append({
                             "type": vuln_type,
                             "sink": func_name,
@@ -367,7 +365,7 @@ class TaintTracker:
                 if self.is_source(return_value):
                     self.logger.info("Tainted return detected: source")
                     return True
-                if return_value.type == 'variable_name' and get_node_text(return_value, self.source_code) in self.tainted_vars:
+                if return_value.type == 'variable_name' and self.taint_state.is_tainted(get_node_text(return_value, self.source_code)):
                     self.logger.info(f"Tainted return detected: variable {get_node_text(return_value, self.source_code)}")
                     return True
                 for child in return_value.named_children:
@@ -428,38 +426,35 @@ class TaintTracker:
 
     def analyze(self, tree: Node, file_path: str) -> Dict[str, List[Dict[str, Any]]]:
         """Analyse l'AST pour détecter les vulnérabilités et avertissements."""
-        self.tainted_vars.clear()
+        self.taint_state.clear()
         self.vulnerabilities.clear()
-        self.warnings.clear()
-        self.sanitized_vars.clear()
+        self.warning_manager.clear()
         self.sink_nodes.clear()
-        self.tainted_vars_info = {}  # Réinitialiser les infos des variables tainted
         self.track_taint(tree.root_node, file_path)
-        self.logger.info(f"Tainted vars after propagation: {self.tainted_vars}")
-        self.logger.info(f"Tainted vars info: {self.tainted_vars_info}")
-        self.logger.info(f"Sanitized vars: {self.sanitized_vars}")
+        self.logger.info(f"Tainted vars after propagation: {self.taint_state.get_tainted_vars()}")
+        self.logger.info(f"Tainted vars info: {self.taint_state.get_tainted_vars_info()}")
+        self.logger.info(f"Sanitized vars: {self.taint_state.get_sanitized_vars()}")
         self.logger.info(f"Vulnerabilities: {self.vulnerabilities}")
         for sink_node in self.sink_nodes:
             self.analyze_sink(sink_node, file_path)
-        for warning in self.warnings:
+        for warning in self.warning_manager.get_warnings():
             warning['file'] = file_path
 
         # Vérifier les variables tainted non désinfectées
-        for var_name in self.tainted_vars:
-            self.logger.info(f"Checking tainted var: {var_name}, sanitized: {var_name in self.sanitized_vars}")
-            is_sanitized = var_name in self.sanitized_vars
+        for var_name in self.taint_state.get_tainted_vars():
+            self.logger.info(f"Checking tainted var: {var_name}, sanitized: {bool(self.taint_state.get_sanitized_vars().get(var_name))}")
+            is_sanitized = bool(self.taint_state.get_sanitized_vars().get(var_name))
             is_vulnerable = any(vuln.get('variable') == var_name for vuln in self.vulnerabilities)
             self.logger.info(f"Var {var_name}: is_sanitized={is_sanitized}, is_vulnerable={is_vulnerable}")
             if not is_sanitized and not is_vulnerable:
-                line = self.tainted_vars_info.get(var_name, None)
-                self.warnings.append({
-                    "type": "unsanitized_source",
-                    "variable": var_name,
-                    "line": line,
-                    "file": file_path,
-                    "message": f"La variable {var_name} est lue depuis une source utilisateur ou propagée sans être désinfectée."
-                })
-                self.logger.info(f"Warning added: Variable {var_name} non désinfectée dans {file_path} at line {line}")
+                line = self.taint_state.get_tainted_vars_info().get(var_name, None)
+                self.warning_manager.add_warning(
+                    "unsanitized_source",
+                    variable=var_name,
+                    line=line,
+                    file=file_path,
+                    message=f"La variable {var_name} est lue depuis une source utilisateur ou propagée sans être désinfectée."
+                )
 
-        self.logger.info(f"Final warnings: {self.warnings}")
-        return {"vulnerabilities": self.vulnerabilities, "warnings": self.warnings}
+        self.logger.info(f"Final warnings: {self.warning_manager.get_warnings()}")
+        return {"vulnerabilities": self.vulnerabilities, "warnings": self.warning_manager.get_warnings()}
